@@ -302,56 +302,56 @@
         <div class="header">
             <h1>
                 <span>🏥</span>
-                医学文献智能问答系统
+                Intelligent Medical Literature Question-Answering System
             </h1>
             <div class="status-bar">
                 <div class="status-item">
-                    状态: <strong id="systemStatus" class="status-online">连接中...</strong>
+                    status: <strong id="systemStatus" class="status-online">connecting...</strong>
                 </div>
                 <div class="status-item">
-                    模型: <strong id="modelName">-</strong>
+                    model: <strong id="modelName">-</strong>
                 </div>
                 <div class="status-item">
-                    文档数量: <strong id="docCount">-</strong>
+                    amount of documents: <strong id="docCount">-</strong>
                 </div>
             </div>
         </div>
 
         <div class="main-content">
             <div class="chat-container">
-                <div class="section-title">💬 对话区</div>
+                <div class="section-title">💬 Conversation Area</div>
                 <div class="chat-messages" id="chatMessages">
                     <div class="empty-state">
-                        请输入您的医学相关问题开始对话
+                        Please enter your medical query to begin the conversation.
                     </div>
                 </div>
                 <div class="input-container">
                     <div style="flex: 1;">
                         <div class="settings-row">
                             <div class="setting-group">
-                                <label>检索文档数 (Top K)</label>
+                                <label>Retrieval document nums (Top K)</label>
                                 <input type="number" id="topK" value="5" min="1" max="20">
                             </div>
                             <div class="setting-group">
-                                <label>温度 (Temperature)</label>
+                                <label>Temperature</label>
                                 <input type="number" id="temperature" value="0.3" min="0" max="1" step="0.1">
                             </div>
                         </div>
                         <textarea
                             id="questionInput"
                             rows="3"
-                            placeholder="输入您的问题... (Enter发送, Shift+Enter换行)"
+                            placeholder="Input your question... (Enter, Shift+Enter)"
                         ></textarea>
                     </div>
-                    <button id="askButton">发送</button>
+                    <button id="askButton">Send</button>
                 </div>
             </div>
 
             <div class="references-container">
-                <div class="section-title">📚 参考文献</div>
+                <div class="section-title">📚 Reference</div>
                 <div class="references-list" id="referencesList">
                     <div class="empty-state">
-                        参考文献将在提问后显示
+                        References will be displayed after the question is asked.
                     </div>
                 </div>
             </div>
@@ -379,15 +379,15 @@
                 if (!response.ok) throw new Error('Failed to fetch status');
 
                 const data = await response.json();
-                systemStatus.textContent = '在线';
+                systemStatus.textContent = 'online';
                 systemStatus.className = 'status-online';
                 modelName.textContent = data.model;
                 docCount.textContent = data.total_documents;
             } catch (error) {
-                systemStatus.textContent = '离线';
+                systemStatus.textContent = 'offline';
                 systemStatus.style.color = '#ef4444';
                 console.error('Initialization error:', error);
-                showError('无法连接到后端服务，请确保服务器正在运行');
+                showError('can not connected to backend server');
             }
         }
 
@@ -445,7 +445,7 @@
             referencesList.innerHTML = '';
 
             if (!references || references.length === 0) {
-                referencesList.innerHTML = '<div class="empty-state">未找到相关参考文献</div>';
+                referencesList.innerHTML = '<div class="empty-state">can not find relevant reference</div>';
                 return;
             }
 
@@ -506,7 +506,7 @@
 
             } catch (error) {
                 removeLoading();
-                showError(`请求失败: ${error.message}`);
+                showError(`request fail: ${error.message}`);
                 console.error('Error:', error);
             } finally {
                 askButton.disabled = false;
