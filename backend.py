@@ -48,7 +48,7 @@ class SystemStatus(BaseModel):
 
 
 # --- Global State ---
-# 使用一个字典来存储全局状态，更清晰
+
 app_state = {
     "vector_db": None,
     "llm": None,
@@ -61,31 +61,31 @@ app_state = {
 async def lifespan(app: FastAPI):
     # Startup
     print("\n" + "=" * 60)
-    print("🏥 Medical Literature QA System Starting...")
+    print(" Medical Literature QA System Starting...")
     print("=" * 60)
     try:
         if not os.path.exists(CHROMA_PERSIST_DIR):
             raise FileNotFoundError(
                 f"Vector database not found at {CHROMA_PERSIST_DIR}. Please run build_index.py first.")
 
-        print("🔄 Initializing embeddings...")
+        print(" Initializing embeddings...")
         embedding_function = OllamaEmbeddings(model=OLLAMA_EMBEDDING_MODEL)
 
-        print("🔄 Loading vector database...")
+        print(" Loading vector database...")
         app_state["vector_db"] = Chroma(persist_directory=CHROMA_PERSIST_DIR, embedding_function=embedding_function)
 
         doc_count = app_state["vector_db"]._collection.count()
         if doc_count == 0:
-            print("⚠️ Warning: Vector database is empty.")
+            print(" Warning: Vector database is empty.")
 
-        print("✅ System initialized successfully")
+        print(" System initialized successfully")
         print(f"   - LLM Model: {OLLAMA_LLM_MODEL}")
         print(f"   - Embedding: {OLLAMA_EMBEDDING_MODEL}")
         print(f"   - Documents: {doc_count}")
         print("=" * 60 + "\n")
 
     except Exception as e:
-        print(f"❌ Initialization error: {e}")
+        print(f" Initialization error: {e}")
 
     yield
 
@@ -105,13 +105,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ 核心修复 1: 挂载静态文件目录
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # --- API Endpoints ---
 
-# ✅ 核心修复 2: 替换根路径("/")的端点，让它返回HTML文件
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Serve the index.html file."""
@@ -145,9 +145,8 @@ async def ask_question(request: QuestionRequest):
 
     try:
         print(
-            f"\n📝 Processing question: '{request.question[:50]}...' (Top K: {request.top_k}, Temp: {request.temperature})")
+            f"\n Processing question: '{request.question[:50]}...' (Top K: {request.top_k}, Temp: {request.temperature})")
 
-        # ✅ 优化 1: 动态配置 retriever 和 llm，而不是重新创建
         retriever = app_state["vector_db"].as_retriever(search_kwargs={"k": request.top_k})
         llm = Ollama(model=OLLAMA_LLM_MODEL, temperature=request.temperature)
 
@@ -165,10 +164,8 @@ async def ask_question(request: QuestionRequest):
                 | StrOutputParser()
         )
 
-        # ✅ 优化 2: 使用 LangChain 的原生异步方法 .ainvoke()
         answer = await chain.ainvoke(request.question)
 
-        # 异步获取参考文献
         docs = await retriever.ainvoke(request.question)
 
         references = [
@@ -179,11 +176,11 @@ async def ask_question(request: QuestionRequest):
             ) for doc in docs
         ]
 
-        print(f"✅ Answer generated with {len(references)} references.")
+        print(f" Answer generated with {len(references)} references.")
         return AnswerResponse(answer=answer, references=references)
 
     except Exception as e:
-        print(f"❌ Error processing question: {e}")
+        print(f" Error processing question: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
