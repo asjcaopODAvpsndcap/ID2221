@@ -36,76 +36,76 @@ public class NoSQLProjectMain {
                 .getOrCreate();
 
         try {
-            logger.info("开始处理PubMed XML数据...");
+            logger.info("Starting to process PubMed XML data...");
 
-            // 1. 加载数据
+            // 1. Load data
             Dataset<Row> rawData = loadPubMedData(spark);
-            logger.info("=== 原始数据检查 ===");
-            logger.info("原始数据条数: {}", rawData.count());
+            logger.info("=== Raw Data Check ===");
+            logger.info("Number of raw data entries: {}", rawData.count());
             rawData.printSchema();
             rawData.show(10, false);
 
-            // 2. 预处理数据
+            // 2. Preprocess data
             Dataset<Row> processedData = preprocessData(spark, rawData);
-            logger.info("=== 处理后数据检查 ===");
-            logger.info("处理后数据条数: {}", processedData.count());
+            logger.info("=== Processed Data Check ===");
+            logger.info("Number of processed data entries: {}", processedData.count());
 
             if (processedData.count() == 0) {
-                logger.error("⚠️ 警告：处理后没有数据！");
+                logger.error("⚠️ Warning: No data after processing!");
                 return;
             }
 
-            // 3. 显示示例数据
-            logger.info("数据示例:");
+            // 3. Display sample data
+            logger.info("Data sample:");
             processedData.show(10, false);
 
-            // 4. 按域分类统计
-            logger.info("按医学领域分类:");
+            // 4. Statistics by domain
+            logger.info("Classification by medical domain:");
             processedData.groupBy("domain").count()
                     .orderBy(desc("count"))
                     .show();
 
-            // 5. 保存处理后的数据到S3
-            logger.info("保存数据到S3...");
+            // 5. Save processed data to S3
+            logger.info("Saving data to S3...");
             saveProcessedDataToS3(processedData);
 
-            // 6. 演示查询功能
-            logger.info("演示查询功能...");
+            // 6. Demonstrate query functionality
+            logger.info("Demonstrating query functionality...");
             demonstrateQueries(spark);
 
         } catch (Exception e) {
-            logger.error("处理过程中出现错误: {}", e.getMessage(), e);
+            logger.error("An error occurred during processing: {}", e.getMessage(), e);
         } finally {
             spark.stop();
         }
     }
 
     public static Dataset<Row> loadPubMedData(SparkSession spark) {
-        logger.info("加载完整JATS格式论文XML（根标签：<article>）...");
+        logger.info("Loading full JATS format article XML (root tag: <article>)...");
 
-        // 1. 先探索5条数据，验证结构（避免直接加载全部报错）
+        // 1. First, explore 5 records to verify the structure (to avoid errors from loading everything at once)
         Dataset<Row> exploratoryData = spark.read()
                 .format("com.databricks.spark.xml")
-                .option("rootTag", "article")  // ✅ 核心修复：根标签是<article>（不是PubmedArticleSet）
-                .option("rowTag", "article")   // ✅ 行标签也是<article>（单篇论文对应1行数据）
+                .option("rootTag", "article")  // ✅ Core fix: The root tag is <article> (not PubmedArticleSet)
+                .option("rowTag", "article")   // ✅ The row tag is also <article> (one article per row)
                 .option("inferSchema", "true")
                 .option("treatEmptyValuesAsNulls", "true")
-                .option("attributePrefix", "_")  // 读取标签属性（如ref的id）
+                .option("attributePrefix", "_")  // To read tag attributes (like ref's id)
                 .option("ignoreSurroundingSpaces", "true")
-                .load(S3_BUCKET + "/medical_xml_data/")  // 你的S3路径
+                .load(S3_BUCKET + "/medical_xml_data/")  // Your S3 path
                 .limit(5);
 
-        // 打印Schema和数据，确认字段存在（关键验证步骤）
-        logger.info("=== 探索性数据Schema（确认front/body/back字段存在）===");
+        // Print Schema and data to confirm fields exist (critical validation step)
+        logger.info("=== Exploratory Data Schema (confirming front/body/back fields exist) ===");
         exploratoryData.printSchema();
-        logger.info("=== 探索性数据样例（确认摘要/标题字段非空）===");
+        logger.info("=== Exploratory Data Sample (confirming abstract/title fields are not null) ===");
         exploratoryData.select(
                 "front.article-meta.article-id._VALUE",  // PMID
-                "front.article-meta.title-group.article-title",  // 标题
-                "front.article-meta.abstract.p"  // 摘要
+                "front.article-meta.title-group.article-title",  // Title
+                "front.article-meta.abstract.p"  // Abstract
         ).show(5, false);
 
-        // 2. 加载全部数据（复用正确的根/行标签）
+        // 2. Load all data (reusing the correct root/row tags)
         return spark.read()
                 .format("com.databricks.spark.xml")
                 .option("rootTag", "article")
@@ -118,54 +118,54 @@ public class NoSQLProjectMain {
     }
 
     public static Dataset<Row> preprocessData(SparkSession spark, Dataset<Row> rawData) {
-        logger.info("开始数据预处理（基于真实XML字段）...");
+        logger.info("Starting data preprocessing (based on actual XML fields)...");
 
         long initialCount = rawData.count();
-        logger.info("初始数据量: {}", initialCount);
+        logger.info("Initial data count: {}", initialCount);
         if (initialCount == 0) {
-            logger.error("❌ 加载后无数据！请检查XML路径和rootTag");
+            logger.error("❌ No data after loading! Please check the XML path and rootTag.");
             return rawData;
         }
 
-        // ✅ 核心修复：不再一次性访问深层路径，而是分步、安全地提取
-        // 我们将所有需要的结构先提取到顶层，如果不存在就设为 null
+        // ✅ Core fix: Instead of accessing deep paths at once, extract step-by-step safely.
+        // We will extract all needed structures to the top level first, setting them to null if they don't exist.
         Dataset<Row> step1 = rawData
-                // 安全地提取 article-meta 和 journal-meta 结构体
+                // Safely extract article-meta and journal-meta structs
                 .withColumn("article_meta_struct", when(col("front").isNotNull(), col("front.article-meta")).otherwise(lit(null)))
                 .withColumn("journal_meta_struct", when(col("front").isNotNull(), col("front.journal-meta")).otherwise(lit(null)));
 
-        // 现在，基于这些安全的顶层结构体进行下一步提取
+        // Now, perform the next extractions based on these safe top-level structs
         Dataset<Row> step2 = step1
-                // 1. 提取PMID (从 article_meta_struct 中提取)
+                // 1. Extract PMID (from article_meta_struct)
                 .withColumn("pmid",
                         when(col("article_meta_struct.article-id").isNotNull()
                                         .and(size(col("article_meta_struct.article-id")).gt(0)),
                                 expr("filter(article_meta_struct.`article-id`, x -> x.`_pub-id-type` == 'pmid')[0].`_VALUE`")
                         ).otherwise(lit("unknown")))
 
-                // 2. 提取文章标题 (从 article_meta_struct 中提取)
+                // 2. Extract article title (from article_meta_struct)
                 .withColumn("article_title",
                         when(col("article_meta_struct.title-group.article-title").isNotNull(),
                                 col("article_meta_struct.title-group.article-title").cast("string"))
                                 .otherwise(lit("unknown")))
 
-                // 3. 提取期刊名 (从 journal_meta_struct 中提取)
+                // 3. Extract journal name (from journal_meta_struct)
                 .withColumn("journal",
                         when(col("journal_meta_struct.journal-title-group.journal-title").isNotNull(),
                                 col("journal_meta_struct.journal-title-group.journal-title").cast("string"))
                                 .otherwise(lit("unknown")))
 
-                // 4. 提取发表年份 (从 article_meta_struct 中提取)
+                // 4. Extract publication year (from article_meta_struct)
                 .withColumn("year",
                         when(col("article_meta_struct.pub-date").isNotNull(),
                                 expr("filter(article_meta_struct.`pub-date`, x -> x.`_pub-type` == 'ppub')[0].year")
                         ).otherwise(lit("unknown")))
 
-                // 5. 提取内容 (从 article_meta_struct 和 body 中提取)
+                // 5. Extract content (from article_meta_struct and body)
                 .withColumn("abstract_text",
                         when(col("article_meta_struct.abstract.p").isNotNull(),
-                                // 先用 flatten 将 ARRAY<ARRAY<STRING>> 降维成 ARRAY<STRING>
-                                // 然后再用 concat_ws 拼接
+                                // First use flatten to reduce ARRAY<ARRAY<STRING>> to ARRAY<STRING>
+                                // Then use concat_ws to join
                                 concat_ws(" ", flatten(col("article_meta_struct.abstract.p"))))
                                 .otherwise(lit("")))
 
@@ -177,35 +177,35 @@ public class NoSQLProjectMain {
                 .withColumn("citation_text",
                         concat_ws(" ", col("abstract_text"), col("body_text")))
 
-                // 6. 生成唯一引用ID
+                // 6. Generate a unique reference ID
                 .withColumn("ref_id",
                         when(input_file_name().isNotNull(), input_file_name())
                                 .otherwise(monotonically_increasing_id().cast("string")));
 
-        // 打印提取结果
-        logger.info("=== 字段提取示例 ===");
+        // Print extraction results
+        logger.info("=== Field Extraction Sample ===");
         step2.select("pmid", "article_title", "journal", "year", "citation_text")
                 .show(5, false);
 
-        // 内容过滤
+        // Content filtering
         Dataset<Row> step3 = step2
                 .filter(col("citation_text").isNotNull().and(length(trim(col("citation_text"))).gt(50)))
                 .filter(col("pmid").isNotNull().and(col("pmid").notEqual("unknown")));
 
         long afterContentFilterCount = step3.count();
-        logger.info("内容过滤后数据量: {} (因内容不合格过滤掉: {})",
+        logger.info("Data count after content filtering: {} (filtered out due to inadequate content: {})",
                 afterContentFilterCount, initialCount - afterContentFilterCount);
 
         if (afterContentFilterCount == 0) {
-            logger.error("⚠️ 内容过滤后无数据！可能是所有记录的摘要或正文都为空或过短。");
-            return step2.select( // 返回未经过内容过滤的数据，但只选择需要的字段
+            logger.error("⚠️ No data after content filtering! All records might have empty or too short abstracts or bodies.");
+            return step2.select( // Return data that has not been content-filtered, but only select the required fields
                     col("pmid"), col("article_title").alias("title"), col("journal"),
                     col("year"), col("citation_text").alias("content"), col("ref_id")
-                    // ... 添加其他需要的字段 ...
+                    // ... add other necessary fields ...
             );
         }
 
-        // 最终数据清理和选择
+        // Final data cleaning and selection
         return step3
                 .withColumn("text_id", monotonically_increasing_id())
                 .withColumn("content", trim(regexp_replace(regexp_replace(col("citation_text"), "<[^>]+>", " "), "[\\r\\n\\s]+", " ")))
@@ -227,16 +227,16 @@ public class NoSQLProjectMain {
                 .dropDuplicates("pmid");
     }
 
-    // 从引用文本中提取标题（简化版）
+    // Extract title from citation text (simplified version)
     private static Column extractTitleFromCitation(Column content) {
-        // 标题通常在年份之后，期刊名之前
-        // 这是一个简化的实现，可能需要根据实际情况调整
+        // The title is usually after the year and before the journal name
+        // This is a simplified implementation and may need adjustment based on the actual situation
         return when(col("content").contains("."),
                 split(col("content"), "\\.").getItem(1))
                 .otherwise(col("content"));
     }
 
-    // 医学领域分类
+    // Classify medical domain
     private static Column classifyMedicalDomain(Column content) {
         Column lowerContent = lower(content);
 
@@ -283,24 +283,24 @@ public class NoSQLProjectMain {
     }
 
     private static void saveProcessedDataToS3(Dataset<Row> processedData) {
-        logger.info("保存数据到S3分区存储...");
+        logger.info("Saving data to S3 partitioned storage...");
 
         long recordCount = processedData.count();
         int partitions = Math.max(10, Math.min(200, (int)(recordCount / 50000)));
-        logger.info("使用 {} 个分区保存数据", partitions);
+        logger.info("Using {} partitions to save data", partitions);
 
         Dataset<Row> optimizedData = processedData.repartition(partitions);
 
-        // 关键修改：统一保存路径（与demonstrateQueries中的读取路径一致）
+        // Key change: unify the save path (consistent with the read path in demonstrateQueries)
         String parquetSavePath = S3_BUCKET + "/10_01/domain_partitioned/";
         optimizedData.write()
                 .mode("overwrite")
-                .partitionBy("domain", "year")  // 按领域和年份分区
+                .partitionBy("domain", "year")  // Partition by domain and year
                 .option("compression", "gzip")
                 .parquet(parquetSavePath);
-        logger.info("Parquet数据已保存到: {}", parquetSavePath);
+        logger.info("Parquet data has been saved to: {}", parquetSavePath);
 
-        // 保存摘要JSON（路径不变）
+        // Save summary JSON (path unchanged)
         String jsonSavePath = S3_BUCKET + "/10_01/summary_json/";
         optimizedData.select("text_id", "pmid", "title", "domain", "year", "journal")
                 .write()
@@ -308,18 +308,18 @@ public class NoSQLProjectMain {
                 .partitionBy("domain")
                 .option("compression", "gzip")
                 .json(jsonSavePath);
-        logger.info("JSON摘要已保存到: {}", jsonSavePath);
+        logger.info("JSON summary has been saved to: {}", jsonSavePath);
     }
 
     private static void demonstrateQueries(SparkSession spark) {
-        logger.info("=== 演示查询功能 ===");
+        logger.info("=== Demonstrating Query Functionality ===");
 
         try {
             Dataset<Row> s3Data = spark.read()
                     .parquet(S3_BUCKET + "/10_01/domain_partitioned/");
 
-            // 1. 基本统计
-            logger.info("1. 数据总览:");
+            // 1. Basic statistics
+            logger.info("1. Data overview:");
             s3Data.groupBy("domain")
                     .agg(
                             count("*").alias("document_count"),
@@ -328,8 +328,8 @@ public class NoSQLProjectMain {
                     .orderBy(desc("document_count"))
                     .show();
 
-            // 2. 按年份统计
-            logger.info("2. 按年份统计:");
+            // 2. Statistics by year
+            logger.info("2. Statistics by year:");
             s3Data.filter(col("year").isNotNull())
                     .filter(col("year").notEqual(""))
                     .groupBy("year")
@@ -337,25 +337,25 @@ public class NoSQLProjectMain {
                     .orderBy(desc("year"))
                     .show(20);
 
-            // 3. 各领域示例
-            logger.info("3. 各领域文档示例:");
+            // 3. Examples from each domain
+            logger.info("3. Document examples from each domain:");
             s3Data.groupBy("domain")
                     .agg(first("title").alias("sample_title"))
                     .show(10, false);
 
-            // 4. 性能测试
-            logger.info("4. 查询性能测试:");
+            // 4. Performance test
+            logger.info("4. Query performance test:");
             long startTime = System.currentTimeMillis();
             long neurologyCount = s3Data
                     .filter(col("domain").equalTo("neurology"))
                     .count();
             long endTime = System.currentTimeMillis();
 
-            logger.info("神经学文档数量: {}", neurologyCount);
-            logger.info("查询耗时: {}ms", (endTime - startTime));
+            logger.info("Number of neurology documents: {}", neurologyCount);
+            logger.info("Query execution time: {}ms", (endTime - startTime));
 
         } catch (Exception e) {
-            logger.error("查询演示出错: {}", e.getMessage(), e);
+            logger.error("Error during query demonstration: {}", e.getMessage(), e);
         }
     }
 }

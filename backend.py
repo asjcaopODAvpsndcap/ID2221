@@ -151,10 +151,22 @@ async def ask_question(request: QuestionRequest):
         llm = Ollama(model=OLLAMA_LLM_MODEL, temperature=request.temperature)
 
         template = """You are a professional medical research assistant. Use the following context to answer the question. 
-        If you don't know, just say that you don't know. Answer in Chinese.
-        Context: {context}
-        Question: {question}
-        Answer (in Chinese):"""
+        If you don't know, just say that you don't know. 
+
+        **CRITICAL INSTRUCTION: Your final answer MUST NOT include any XML tags like <think> or </think>. 
+        Directly provide the answer based on the context.**
+
+        Answer in English
+
+        Context:
+        {context}
+
+        Question:
+        {question}
+
+        Answer (in English):"""
+
+
         prompt = ChatPromptTemplate.from_template(template)
 
         chain = (
