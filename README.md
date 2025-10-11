@@ -35,15 +35,11 @@ pip install -r requirements.txt
 
 Configure Environment Variables
 For the Java Spark Job: Create a config.properties file in the src/main/resources directory and add your AWS credentials.
-
-
-# src/main/resources/config.properties
 aws.accessKeyId=YOUR_AWS_ACCESS_KEY_ID
 aws.secretAccessKey=YOUR_AWS_SECRET_ACCESS_KEY
 s3.endpoint=s3.eu-north-1.amazonaws.com
 s3.bucket=s3a://your-s3-bucket-name
 
-# .env
 AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
 AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
 AWS_REGION="eu-north-1"
